@@ -1,0 +1,32 @@
+# Core Backend & Web Framework
+fastapi==0.111.0
+uvicorn[standard]==0.30.1
+pydantic==2.7.1
+SQLAlchemy==2.0.30
+psycopg2-binary==2.9.9
+python-jose[cryptography]==3.3.0
+bcrypt==4.1.3
+python-multipart==0.0.9 # Updated to 0.0.9
+aiofiles==23.2.1 # Added for async file handling
+
+# AI/ML Dependencies (GPU-enabled)
+# NOTE: torch, torchvision, torchaudio were installed via conda.
+# We list them here for completeness but pip will skip if already installed.
+torch==2.3.0
+torchvision==0.18.0
+torchaudio==2.3.0
+transformers==4.41.2
+accelerate==0.30.1
+bitsandbytes==0.43.1
+langchain==0.2.1
+openai-whisper==20231117
+ffmpeg-python==0.2.0
+sentence-transformers==2.7.0
+faiss-cpu==1.8.0
+
+# Data & Utilities
+
+
+# Logging & Monitoring (for future expansion, good to include now)
+python-json-logger==2.0.7
+sentry-sdk==2.0.0
