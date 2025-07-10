@@ -10,3 +10,5 @@ venv/
 .vscode/
 *.log
 data/user_progress/*.db
+data/content/
+
