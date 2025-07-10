@@ -12,7 +12,7 @@ import aiofiles # Import aiofiles for async file operations
 import traceback # For printing full tracebacks in errors
 
 from src.ai_modules.asr_module import load_whisper_model, transcribe_audio
-from src.ai_modules.rag_module import initialize_rag, get_rag_response
+from src.ai_modules.rag_module import initialize_rag, get_rag_response 
 
 # Define paths for static files and temporary uploads
 STATIC_FILES_DIR = os.path.join(os.path.dirname(__file__), "..", "ui")
@@ -40,8 +40,7 @@ async def startup_event():
     print("FastAPI startup: Whisper model loaded.")
 
     # Initialize RAG components (LLM, embeddings, FAISS index)
-    await initialize_rag()
-    print("FastAPI startup: RAG module initialized.")
+    await initialize_rag() # This line is now uncommented
     print("All AI models are ready.")
 
 
@@ -122,7 +121,7 @@ async def read_root():
                     mediaRecorder.start();
                     statusDiv.textContent = "Recording... Click Stop to finish.";
                     recordButton.disabled = true;
-                    stopButton.disabled = false;
+                    stopButton.disabled = true;
                     uploadButton.disabled = true;
                 } catch (err) {
                     statusDiv.textContent = `Error accessing microphone: ${err.message}`;
@@ -144,7 +143,7 @@ async def read_root():
                     return;
                 }
 
-                statusDiv.textContent = "Transcribing audio... This may take a moment.";
+                statusDiv.textContent = "Transcribing audio... This may may take a moment.";
                 uploadButton.disabled = true;
 
                 const formData = new FormData();

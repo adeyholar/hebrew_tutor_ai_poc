@@ -22,7 +22,6 @@ documents = [] # Stores original text chunks
 document_paths = [] # Stores paths to original files for context
 
 # --- Configuration ---
-# CHANGE THIS LINE: Reverting to the 7B Hebrew-optimized Mistral model
 LLM_MODEL_NAME = "yam-peleg/Hebrew-Mistral-7B"
 EMBEDDING_MODEL_NAME = "all-MiniLM-L6-v2"
 
@@ -44,19 +43,16 @@ async def load_llm_model():
             bnb_4bit_quant_type="nf4",
             bnb_4bit_compute_dtype=torch.bfloat16,
             bnb_4bit_use_double_quant=True,
-            # REMOVED: load_in_8bit_fp32_cpu_offload=True, (was causing unused kwarg warning)
         )
-
-        # REMOVED: custom_device_map, as device_map="auto" should work for 7B models
         
         llm_tokenizer = AutoTokenizer.from_pretrained(LLM_MODEL_NAME)
         llm_model = AutoModelForCausalLM.from_pretrained(
             LLM_MODEL_NAME,
             quantization_config=bnb_config,
-            device_map="auto", # Revert to auto, as it worked for 7B previously
+            device_map="auto",
             torch_dtype=torch.bfloat16
         )
-        print(f"LLM model '{LLM_MODEL_NAME}' loaded successfully.")
+        print(f"LLM model '{LLM_MODEL_NAME}' loaded successfully.") 
     return llm_model, llm_tokenizer
 
 def load_embedding_model():
@@ -77,7 +73,8 @@ def load_and_chunk_content(content_dir: str) -> Tuple[List[str], List[str]]:
     """
     Loads text content from XML files in a directory and chunks it by verse.
     This version uses lxml to parse the structured XML (UXLC format) and explicitly
-    handles XML namespaces to ensure correct element selection.
+    handles XML namespaces to ensure correct element selection, and adds more robust
+    attribute extraction and debugging.
     """
     global documents, document_paths
     documents = []
@@ -92,14 +89,14 @@ def load_and_chunk_content(content_dir: str) -> Tuple[List[str], List[str]]:
             if file_name.lower().endswith(".xml"): # Look for XML files
                 file_path = os.path.join(root_dir, file_name)
                 # Skip known metadata XML files if they exist and contain only schema/notes
-                if "tanach.xml" in file_name.lower() or "tanach.xsd" in file_name.lower():
+                if "tanach.xml" in file_name.lower() or "tanach.xsd" in file_name.lower() or "tanachheader.xml" in file_name.lower() or "tanachindex.xml" in file_name.lower():
                     print(f"RAG Debug: Skipping known metadata XML file: {file_path}")
                     continue
 
                 print(f"RAG Debug: Processing XML file: {file_path}")
                 
                 try:
-                    tree = etree.parse(file_path) # type: ignore # Pylance false positive for missing 'parser' argument
+                    tree = etree.parse(file_path) # type: ignore
                     root = tree.getroot()
 
                     # Extract default namespace if present
@@ -108,16 +105,32 @@ def load_and_chunk_content(content_dir: str) -> Tuple[List[str], List[str]]:
                     
                     print(f"RAG Debug: Detected namespace: {ns}")
 
-                    # Extract book title from XML metadata (using a more general XPath for title)
-                    book_title_xpath = "//ns:teiHeader/ns:fileDesc/ns:titleStmt/ns:title[@level='a' and @type='main']" if ns else "//teiHeader/fileDesc/titleStmt/title[@level='a' and @type='main']"
-                    book_title_elem = tree.xpath(book_title_xpath, namespaces=ns)
-                    book_name = book_title_elem[0].text.strip() if book_title_elem else os.path.splitext(file_name)[0]
-                    print(f"RAG Debug: Extracted book name: {book_name} from {file_name}")
+                    # --- Robust Book Name Extraction ---
+                    book_name = os.path.splitext(file_name)[0] # Default to filename
+                    
+                    # Try to get from teiHeader first (most reliable)
+                    book_title_xpath_tei = "//ns:teiHeader/ns:fileDesc/ns:titleStmt/ns:title[@level='a' and @type='main']" if ns else "//teiHeader/fileDesc/titleStmt/title[@level='a' and @type='main']"
+                    book_title_elem_tei = tree.xpath(book_title_xpath_tei, namespaces=ns)
+                    if book_title_elem_tei and book_title_elem_tei[0].text:
+                        book_name = book_title_elem_tei[0].text.strip()
+                        print(f"RAG Debug: Extracted book name from teiHeader: {book_name}")
+                    else:
+                        # Fallback to book element's 'name' attribute
+                        book_elem_for_name = tree.xpath("//ns:book" if ns else "//book", namespaces=ns)
+                        if book_elem_for_name and book_elem_for_name[0].get("name"):
+                            book_name = book_elem_for_name[0].get("name").strip()
+                            print(f"RAG Debug: Extracted book name from <book> element 'name' attribute: {book_name}")
+                        else:
+                            print(f"RAG Debug: Could not find book name in teiHeader or <book> element. Using filename: {book_name}")
 
-                    # Iterate through chapters and verses
-                    book_xpath = "//ns:book" if ns else "//book"
-                    chapter_xpath = "./ns:chapter" if ns else "./chapter"
-                    verse_xpath = "./ns:verse" if ns else "./verse"
+                    # Iterate through books within the <tanach> root element
+                    # The <book> elements are children of <tanach> (lowercase 't')
+                    # Adjusted XPath to target books under <tanach>
+                    book_xpath = "//ns:tanach/ns:book" if ns else "//tanach/book" 
+
+                    # Corrected chapter and verse XPaths based on your XML snippet
+                    chapter_xpath = "./ns:c" if ns else "./c" # Chapter tag is 'c'
+                    verse_xpath = "./ns:v" if ns else "./v"     # Verse tag is 'v'
                     word_xpath = ".//ns:w" if ns else ".//w"
 
                     book_elements = tree.xpath(book_xpath, namespaces=ns)
@@ -126,22 +139,27 @@ def load_and_chunk_content(content_dir: str) -> Tuple[List[str], List[str]]:
                         continue
                     
                     for book_elem in book_elements:
-                        xml_book_name = book_elem.get("name")
-                        xml_book_name_hebrew = book_elem.get("namehebrew")
-                        print(f"RAG Debug: Found <book> element: name='{xml_book_name}', namehebrew='{xml_book_name_hebrew}'")
+                        print(f"RAG Debug: Found <book> element with tag: {book_elem.tag}")
 
+                        chapters_found = False
                         for chapter_elem in book_elem.xpath(chapter_xpath, namespaces=ns):
+                            chapters_found = True
                             chapter_num = chapter_elem.get("n")
                             if not chapter_num:
                                 print(f"RAG Debug: No 'n' attribute for chapter in {file_path}. Skipping chapter.")
                                 continue
                             
+                            print(f"RAG Debug: Processing Chapter: {chapter_num}")
+                            
+                            verses_found = False
                             for verse_elem in chapter_elem.xpath(verse_xpath, namespaces=ns):
+                                verses_found = True
                                 verse_num = verse_elem.get("n")
                                 if not verse_num:
                                     print(f"RAG Debug: No 'n' attribute for verse in Chapter {chapter_num} of {file_path}. Skipping verse.")
                                     continue
                                 
+                                # Extract all text from <w> (word) elements within the verse
                                 hebrew_words = [w.text.strip() for w in verse_elem.xpath(word_xpath, namespaces=ns) if w.text is not None]
                                 
                                 verse_content = " ".join(hebrew_words)
@@ -152,8 +170,15 @@ def load_and_chunk_content(content_dir: str) -> Tuple[List[str], List[str]]:
                                     full_identifier = f"{book_name} {chapter_num}:{verse_num}"
                                     documents.append(full_identifier + ": " + verse_content)
                                     document_paths.append(f"{book_name}:{chapter_num}:{verse_num}")
+                                    print(f"RAG Debug: Added chunk: {full_identifier}: {verse_content[:50]}...")
                                 else:
                                     print(f"RAG Debug: No Hebrew content found for verse {book_name} {chapter_num}:{verse_num} in {file_path}. Skipping.")
+                            
+                            if not verses_found:
+                                print(f"RAG Debug: No <v> elements found in Chapter {chapter_num} of {file_path} using XPath '{verse_xpath}'.")
+                        
+                        if not chapters_found:
+                            print(f"RAG Debug: No <c> elements found in book '{book_name}' in {file_path} using XPath '{chapter_xpath}'.")
 
                 except etree.XMLSyntaxError as e:
                     print(f"RAG Debug: XML Syntax Error in {file_path}: {e}. Skipping file.")
@@ -240,7 +265,7 @@ async def get_rag_response(query: str, top_k: int = 3) -> str:
     print(f"Processing RAG query: '{query}'")
 
     # 1. Embed the query
-    query_embedding: np.ndarray = embedding_model.encode([query], convert_to_numpy=True).astype('float32') # type: ignore
+    query_embedding: np.ndarray = embedding_model.encode([query], convert_to_numpy=True, show_progress_bar=False).astype('float32') # type: ignore
     if query_embedding.ndim == 1:
         query_embedding = query_embedding.reshape(1, -1)
 
@@ -255,7 +280,8 @@ async def get_rag_response(query: str, top_k: int = 3) -> str:
     # 3. Construct prompt with context
     context = "\n".join(retrieved_docs)
     prompt = (
-        f"Using the following context, answer the question. "
+        f"Based *only* on the following context, answer the question concisely and directly. "
+        f"Do not include any conversational filler, greetings, or suggestions for further questions. "
         f"If the answer is not explicitly in the context, state that you cannot answer based on the provided context.\n\n"
         f"Context:\n{context}\n\n"
         f"Question: {query}\n"
@@ -270,13 +296,14 @@ async def get_rag_response(query: str, top_k: int = 3) -> str:
         max_new_tokens=200,
         num_return_sequences=1,
         do_sample=True,
-        temperature=0.7,
+        temperature=0.4, # <--- Lower temperature for less randomness
         top_p=0.9,
         pad_token_id=llm_tokenizer.eos_token_id
     )
     response_text = llm_tokenizer.decode(outputs[0], skip_special_tokens=True)
 
     # Post-process to extract only the answer part
+    # Keep this as is, it's already good for stripping the "Answer:" prefix
     if "Answer:" in response_text:
         response_text = response_text.split("Answer:", 1)[1].strip()
     elif "Question:" in response_text:
