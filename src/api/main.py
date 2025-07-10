@@ -1,21 +1,28 @@
 # src/api/main.py
 
-from fastapi import FastAPI, UploadFile, File, HTTPException
+from fastapi import FastAPI, UploadFile, File, HTTPException, Form
 from fastapi.responses import HTMLResponse
 import torch
 import os
 import shutil
-import uuid # For generating unique filenames
-import sys # Added for sys.version
+import uuid
+import sys
+from typing import Dict
+import aiofiles # Import aiofiles for async file operations
+import traceback # For printing full tracebacks in errors
 
 from src.ai_modules.asr_module import load_whisper_model, transcribe_audio
+from src.ai_modules.rag_module import initialize_rag, get_rag_response
 
 # Define paths for static files and temporary uploads
 STATIC_FILES_DIR = os.path.join(os.path.dirname(__file__), "..", "ui")
 UPLOAD_DIR = os.path.join(os.path.dirname(__file__), "..", "data", "uploads") # Temporary upload directory
 
-# Ensure upload directory exists
+# Ensure necessary directories exist
 os.makedirs(UPLOAD_DIR, exist_ok=True)
+# Ensure embeddings directory exists for FAISS index (created by rag_module)
+os.makedirs(os.path.join(os.path.dirname(__file__), "..", "data", "embeddings"), exist_ok=True)
+
 
 # Initialize FastAPI app
 app = FastAPI(
@@ -24,21 +31,25 @@ app = FastAPI(
     version="0.1.0",
 )
 
-# Load Whisper model on startup
+# Load AI models on startup
 @app.on_event("startup")
 async def startup_event():
-    # Load a small model for PoC. Consider "medium" for better Hebrew accuracy if VRAM allows.
-    # For initial quick test, you can use "tiny"
-    load_whisper_model(model_name="small") # This will download the model if not present
+    print("FastAPI startup: Initializing AI models...")
+    # Load Whisper model (model_name="small" is a good balance for 8GB GPU)
+    load_whisper_model(model_name="small")
     print("FastAPI startup: Whisper model loaded.")
+
+    # Initialize RAG components (LLM, embeddings, FAISS index)
+    await initialize_rag()
+    print("FastAPI startup: RAG module initialized.")
+    print("All AI models are ready.")
+
 
 @app.get("/", response_class=HTMLResponse)
 async def read_root():
     """
     Serves the main HTML page for the frontend.
     """
-    # For PoC, we'll serve a simple HTML file directly.
-    # In a real app, you'd use FastAPI's StaticFiles or a templating engine.
     html_content = """
     <!DOCTYPE html>
     <html lang="en">
@@ -49,23 +60,40 @@ async def read_root():
         <style>
             body { font-family: sans-serif; margin: 20px; }
             h1 { color: #333; }
-            button { padding: 10px 20px; margin: 5px; cursor: pointer; }
-            #output { margin-top: 20px; padding: 10px; border: 1px solid #ccc; background-color: #f9f9f9; }
-            #status { margin-top: 10px; font-size: 0.9em; color: #666; }
+            button, input[type="text"] { padding: 10px 20px; margin: 5px; cursor: pointer; border-radius: 5px; border: 1px solid #ccc; }
+            input[type="text"] { width: 300px; padding: 10px; }
+            #output, #ragOutput { margin-top: 20px; padding: 15px; border: 1px solid #eee; background-color: #f9f9f9; border-radius: 8px; box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+            #status, #ragStatus { margin-top: 10px; font-size: 0.9em; color: #666; }
+            hr { margin: 30px 0; border: 0; border-top: 1px solid #eee; }
+            .section { margin-bottom: 40px; padding: 20px; border: 1px solid #ddd; border-radius: 10px; background-color: #fff; box-shadow: 0 4px 8px rgba(0,0,0,0.05); }
         </style>
     </head>
     <body>
         <h1>Hebrew Tutor AI PoC</h1>
         <p>This is a local Proof of Concept for the Hebrew Tutor AI.</p>
 
-        <h2>ASR Test (Speech-to-Text)</h2>
-        <button id="recordButton">Record Audio</button>
-        <button id="stopButton" disabled>Stop Recording</button>
-        <button id="uploadButton" disabled>Transcribe Audio</button>
-        <div id="status">Ready.</div>
-        <div id="output">Transcription will appear here...</div>
+        <div class="section">
+            <h2>ASR Test (Speech-to-Text)</h2>
+            <button id="recordButton">Record Audio</button>
+            <button id="stopButton" disabled>Stop Recording</button>
+            <button id="uploadButton" disabled>Transcribe Audio</button>
+            <div id="status">Ready.</div>
+            <div id="output">Transcription will appear here...</div>
+        </div>
+
+        <hr>
+
+        <div class="section">
+            <h2>RAG Test (Question Answering)</h2>
+            <input type="text" id="queryInput" placeholder="Ask a question about the text...">
+            <button id="askButton">Ask LLM</button>
+            <div id="ragStatus">Ready.</div>
+            <div id="ragOutput">LLM response will appear here...</div>
+        </div>
+
 
         <script>
+            // --- ASR Script ---
             let mediaRecorder;
             let audioChunks = [];
             let audioBlob;
@@ -145,6 +173,51 @@ async def read_root():
                     uploadButton.disabled = false;
                 }
             };
+
+            // --- RAG Script ---
+            const queryInput = document.getElementById('queryInput');
+            const askButton = document.getElementById('askButton');
+            const ragStatusDiv = document.getElementById('ragStatus');
+            const ragOutputDiv = document.getElementById('ragOutput');
+
+            askButton.onclick = async () => {
+                const query = queryInput.value.trim();
+                if (!query) {
+                    ragStatusDiv.textContent = "Please enter a question.";
+                    return;
+                }
+
+                ragOutputDiv.textContent = "LLM response will appear here...";
+                ragStatusDiv.textContent = "Asking LLM... This may take a while.";
+                askButton.disabled = true;
+
+                try {
+                    const response = await fetch('/ask_llm/', {
+                        method: 'POST',
+                        headers: {
+                            'Content-Type': 'application/json'
+                        },
+                        body: JSON.stringify({ query: query })
+                    });
+
+                    if (response.ok) {
+                        const result = await response.json();
+                        ragOutputDiv.textContent = `Response: ${result.response}`;
+                        ragStatusDiv.textContent = "LLM response complete!";
+                    } else {
+                        const errorData = await response.json();
+                        ragOutputDiv.textContent = `Error: ${errorData.detail || response.statusText}`;
+                        ragStatusDiv.textContent = "LLM query failed.";
+                    }
+                } catch (error) {
+                    ragOutputDiv.textContent = `Network Error: ${error.message}`;
+                    ragStatusDiv.textContent = "LLM query failed due to network error.";
+                    console.error('Fetch error:', error);
+                } finally {
+                    askButton.disabled = false;
+                }
+            };
+
         </script>
     </body>
     </html>
@@ -169,7 +242,7 @@ async def get_status():
 
     status_info = {
         "api_status": "running",
-        "python_version": sys.version, # Changed from os.sys.version to sys.version
+        "python_version": sys.version,
         "torch_version": torch.__version__,
         "cuda_is_available": gpu_available,
         "cuda_device_count": gpu_count,
@@ -193,10 +266,13 @@ async def transcribe_audio_endpoint(audio_file: UploadFile = File(...)):
     file_path = os.path.join(UPLOAD_DIR, unique_filename)
 
     try:
-        # Save the uploaded file synchronously for simplicity in PoC.
-        # For very large files, consider using aiofiles for async writing.
-        with open(file_path, "wb") as buffer:
-            shutil.copyfileobj(audio_file.file, buffer)
+        # Save the uploaded file asynchronously for better performance, especially with large files.
+        async with aiofiles.open(file_path, "wb") as buffer:
+            while True:
+                chunk = await audio_file.read(1024 * 1024) # Read in 1MB chunks
+                if not chunk:
+                    break
+                await buffer.write(chunk)
         print(f"Saved uploaded audio to: {file_path}")
 
         # Transcribe the audio
@@ -204,9 +280,29 @@ async def transcribe_audio_endpoint(audio_file: UploadFile = File(...)):
         return {"text": transcription_result["text"]}
     except Exception as e:
         print(f"Error during transcription: {e}")
-        raise HTTPException(status_code=500, detail=f"Transcription failed: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Transcription failed: {str(e)}")
     finally:
         # Clean up the temporary audio file
         if os.path.exists(file_path):
             os.remove(file_path)
             print(f"Cleaned up temporary audio file: {file_path}")
+
+@app.post("/ask_llm/")
+async def ask_llm_endpoint(query_data: Dict[str, str]):
+    """
+    Receives a text query, sends it to the RAG module, and returns the LLM's response.
+    """
+    query = query_data.get("query")
+    if not query:
+        raise HTTPException(status_code=400, detail="No query provided.")
+
+    try:
+        response = await get_rag_response(query)
+        return {"response": response}
+    except Exception as e:
+        print(f"Error during LLM query: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"LLM query failed: {str(e)}")
