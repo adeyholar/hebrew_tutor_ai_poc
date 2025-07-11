@@ -101,6 +101,12 @@ async def read_root():
                 margin-left: 10px;
                 color: #555;
             }
+            /* NEW: Highlighting style */
+            .highlight {
+                background-color: #ffeb3b; /* A yellow highlight */
+                border-radius: 3px;
+                padding: 2px 0;
+            }
         </style>
     </head>
     <body>
@@ -296,13 +302,19 @@ async def read_root():
                 const bookSelect = document.getElementById('bookSelect');
                 const chapterSelect = document.getElementById('chapterSelect');
                 const loadChapterTextButton = document.getElementById('loadChapterTextButton');
-                // RENAMED BUTTON ID
                 const playChapterAudioButton = document.getElementById('playChapterAudioButton'); 
                 const audioPlaybackStatus = document.getElementById('audioPlaybackStatus');
                 const audioPlayer = document.getElementById('audioPlayer');
                 const playbackSpeedSelect = document.getElementById('playbackSpeedSelect');
                 const hebrewTextDisplay = document.getElementById('hebrewTextDisplay');
                 const textDisplayStatus = document.getElementById('textDisplayStatus');
+
+                // Store loaded verses globally for highlighting logic
+                let loadedVerses = [];
+                let currentHighlightedWordId = null;
+                let totalWordsInChapter = 0; // Track total words for dynamic duration calculation
+                // IMPORTANT: Adjust this offset based on your audio files' actual introduction length
+                const audioOffsetSeconds = 8.0; // Estimated time in seconds for the introduction
 
                 // --- DEBUGGING: Check if elements are found ---
                 console.log("DEBUG: bookSelect element found:", bookSelect);
@@ -387,6 +399,9 @@ async def read_root():
                     playChapterAudioButton.disabled = true; // Disable audio button on book change
                     hebrewTextDisplay.innerHTML = ''; // Clear text display
                     textDisplayStatus.textContent = "Select a chapter.";
+                    loadedVerses = []; // Clear loaded verses on book change
+                    totalWordsInChapter = 0; // Reset total words
+                    resetHighlight(); // Clear any existing highlight
 
                     if (selectedBook) {
                         for (let i = 1; i <= selectedBook.chapters; i++) {
@@ -404,6 +419,9 @@ async def read_root():
                     playChapterAudioButton.disabled = !chapterSelect.value; // Enable/disable audio button based on chapter selection
                     hebrewTextDisplay.innerHTML = ''; // Clear text display on chapter change
                     textDisplayStatus.textContent = "Click 'Load Chapter Text'.";
+                    loadedVerses = []; // Clear loaded verses on chapter change
+                    totalWordsInChapter = 0; // Reset total words
+                    resetHighlight(); // Clear any existing highlight
                 };
 
                 loadChapterTextButton.onclick = async () => {
@@ -417,21 +435,33 @@ async def read_root():
 
                     hebrewTextDisplay.innerHTML = '';
                     textDisplayStatus.textContent = `Loading ${selectedBookId} Chapter ${selectedChapter}...`;
+                    loadedVerses = []; // Reset loaded verses before fetching
+                    totalWordsInChapter = 0; // Reset total words before fetching
+                    resetHighlight(); // Clear any existing highlight
 
                     try {
                         const response = await fetch(`/get_chapter_text/${selectedBookId}/${selectedChapter}`);
                         if (response.ok) {
                             const result = await response.json();
                             if (result.verses && result.verses.length > 0) {
+                                loadedVerses = result.verses; // Store loaded verses for highlighting
                                 hebrewTextDisplay.innerHTML = ''; // Clear previous content
-                                result.verses.forEach(verse => {
+                                
+                                loadedVerses.forEach((verse, verseIndex) => {
                                     const verseDiv = document.createElement('div');
                                     verseDiv.className = 'hebrew-verse';
-                                    // Join the array of words into a single string for display
-                                    verseDiv.innerHTML = `<span>${verse.verse_num}.</span> ${verse.text.join(' ')}`; 
+                                    let verseHtml = `<span>${verse.verse_num}.</span> `;
+                                    
+                                    // Wrap each word in a span with a unique ID for highlighting
+                                    verse.text.forEach((word, wordIndex) => {
+                                        const wordId = `word-${verseIndex}-${wordIndex}`;
+                                        verseHtml += `<span id="${wordId}">${word}</span> `;
+                                        totalWordsInChapter++; // Increment total words
+                                    });
+                                    verseDiv.innerHTML = verseHtml.trim(); // Trim trailing space
                                     hebrewTextDisplay.appendChild(verseDiv);
                                 });
-                                textDisplayStatus.textContent = `Loaded ${result.verses.length} verses for ${selectedBookId} Chapter ${selectedChapter}.`;
+                                textDisplayStatus.textContent = `Loaded ${loadedVerses.length} verses (${totalWordsInChapter} words) for ${selectedBookId} Chapter ${selectedChapter}.`;
                                 playChapterAudioButton.disabled = false; // Enable audio button once text is loaded
                             } else {
                                 hebrewTextDisplay.innerHTML = '<p>No verses found for this chapter.</p>';
@@ -493,7 +523,7 @@ async def read_root():
                         'Nahum': 'hbofNam', 
                         'Nehemiah': 'hbofNeh',
                         'Numbers': 'hbofNum',
-                        'Obadiah': 'hbofOba', // This is the base name for Obadiah
+                        'Obadiah': 'hbofOba', 
                         'Proverbs': 'hbofPro',
                         'Psalms': 'hbofPsa', 
                         'Ruth': 'hbofRut',
@@ -514,21 +544,18 @@ async def read_root():
                     }
 
                     // Handle special cases for chapter numbering and filenames
-                    // Obadiah is a single chapter book, its filename is just hbofOba.mp3
                     if (selectedBookId === 'Obadiah') {
                         audioFilename = `${baseAudioName}.mp3`;
                     } else if (selectedBookId === 'Psalms') {
-                        // Psalms chapter numbers are zero-padded to three digits (e.g., _001, _010, _100)
                         const paddedChapter = String(selectedChapter).padStart(3, '0');
                         audioFilename = `${baseAudioName}_${paddedChapter}.mp3`;
                     } else {
-                        // Default for most books: _01, _02, etc. (two digits)
                         const paddedChapter = String(selectedChapter).padStart(2, '0');
                         audioFilename = `${baseAudioName}_${paddedChapter}.mp3`;
                     }
                     
                     const audioUrl = `/audio/${audioFilename}`; 
-                    console.log(`DEBUG: Attempting to load audio from URL: ${audioUrl}`); // ADDED DEBUG LOG
+                    console.log(`DEBUG: Attempting to load audio from URL: ${audioUrl}`); 
                     audioPlayer.src = audioUrl;
                     audioPlayer.load(); 
                     audioPlayer.playbackRate = parseFloat(playbackSpeedSelect.value); 
@@ -536,12 +563,88 @@ async def read_root():
                         .then(() => {
                             audioPlaybackStatus.textContent = `Playing: ${audioFilename} at ${audioPlayer.playbackRate * 100}% speed.`;
                             console.log(`Successfully initiated playback for: ${audioUrl}`);
+                            // Reset highlight on new playback
+                            resetHighlight();
+                            // Start playing from the offset
+                            audioPlayer.currentTime = audioOffsetSeconds;
                         })
                         .catch(error => {
                             audioPlaybackStatus.textContent = `Error playing audio: ${error.message}. Please ensure the audio file '${audioFilename}' exists in the 'data/tanakh_audio' directory and is not corrupted.`;
                             console.error('Audio playback error:', error);
                             console.error(`Attempted audio URL: ${audioUrl}`);
                         });
+                };
+
+                // Function to remove all highlights
+                function resetHighlight() {
+                    if (currentHighlightedWordId) {
+                        const prevHighlightedWord = document.getElementById(currentHighlightedWordId);
+                        if (prevHighlightedWord) {
+                            prevHighlightedWord.classList.remove('highlight');
+                        }
+                        currentHighlightedWordId = null;
+                    }
+                    // Also remove highlights from any other words that might be highlighted
+                    document.querySelectorAll('.highlight').forEach(el => el.classList.remove('highlight'));
+                }
+
+                // --- NEW: Audio Time Update Listener for Highlighting ---
+                audioPlayer.ontimeupdate = () => {
+                    if (loadedVerses.length === 0 || audioPlayer.duration === 0) return; // No text or audio loaded
+
+                    const currentTime = audioPlayer.currentTime;
+                    // Adjust current time by the offset
+                    const effectiveCurrentTime = currentTime - audioOffsetSeconds;
+
+                    // Calculate simulated word duration based on actual audio length (minus offset) and total words
+                    const effectiveAudioDuration = audioPlayer.duration - audioOffsetSeconds;
+                    // Ensure effectiveAudioDuration is positive to avoid division by zero or negative values
+                    const simulatedWordDuration = totalWordsInChapter > 0 && effectiveAudioDuration > 0 
+                                                  ? effectiveAudioDuration / totalWordsInChapter 
+                                                  : 0.5; // Fallback to 0.5 seconds if calculation is invalid
+
+                    let cumulativeTimeForHighlight = 0; // This tracks time for highlighting logic
+                    let foundWordToHighlight = false;
+
+                    // Iterate through all words in the loaded chapter to find the one to highlight
+                    for (let i = 0; i < loadedVerses.length; i++) {
+                        const verse = loadedVerses[i];
+                        for (let j = 0; j < verse.text.length; j++) {
+                            const wordId = `word-${i}-${j}`;
+                            const wordElement = document.getElementById(wordId);
+                            
+                            const wordStartTime = cumulativeTimeForHighlight;
+                            const wordEndTime = cumulativeTimeForHighlight + simulatedWordDuration;
+
+                            // Check if the effective current time falls within this word's simulated duration
+                            if (effectiveCurrentTime >= wordStartTime && effectiveCurrentTime < wordEndTime) {
+                                if (currentHighlightedWordId !== wordId) {
+                                    // Remove previous highlight
+                                    if (currentHighlightedWordId) {
+                                        const prevHighlighted = document.getElementById(currentHighlightedWordId);
+                                        if (prevHighlighted) prevHighlighted.classList.remove('highlight');
+                                    }
+                                    // Apply new highlight
+                                    if (wordElement) {
+                                        wordElement.classList.add('highlight');
+                                        currentHighlightedWordId = wordId;
+
+                                        // Optional: Scroll to the highlighted word (enable with caution)
+                                        // wordElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                    }
+                                }
+                                foundWordToHighlight = true;
+                                break; // Found the word for current time, exit inner loop
+                            }
+                            cumulativeTimeForHighlight += simulatedWordDuration;
+                        }
+                        if (foundWordToHighlight) break; // Found the word, exit outer loop
+                    }
+
+                    // If audio has ended or effectiveCurrentTime is outside the range of words, clear highlight
+                    if (!foundWordToHighlight && currentHighlightedWordId && effectiveCurrentTime >= effectiveAudioDuration) {
+                        resetHighlight();
+                    }
                 };
 
                 // Event listener for speed change
@@ -555,11 +658,24 @@ async def read_root():
                 // Optional: Handle audio player events for status updates
                 audioPlayer.onended = () => {
                     audioPlaybackStatus.textContent = "Audio finished.";
+                    resetHighlight(); // Clear highlight when audio ends
                 };
                 audioPlayer.onerror = (e) => {
                     audioPlaybackStatus.textContent = `Audio error: ${audioPlayer.error.message || e.type}. Check console for details.`;
                     console.error('Audio element error:', audioPlayer.error);
+                    resetHighlight(); // Clear highlight on error
                 };
+                
+                // NEW: Reset highlight on pause or seeking
+                audioPlayer.onpause = () => {
+                    // Optionally keep highlight on pause, or reset. For now, let's reset.
+                    // resetHighlight(); 
+                };
+
+                audioPlayer.onseeking = () => {
+                    resetHighlight(); // Clear highlight when user seeks
+                };
+
 
                 // Initial state: audio button disabled
                 playChapterAudioButton.disabled = true;
