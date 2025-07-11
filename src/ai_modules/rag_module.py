@@ -9,9 +9,7 @@ import numpy as np
 import re
 from typing import List, Dict, Tuple, Optional
 import asyncio
-
-# For XML parsing
-from lxml import etree # Import lxml for efficient XML parsing
+import json # <--- ADDED THIS IMPORT
 
 # --- Global Variables ---
 llm_model = None
@@ -25,8 +23,9 @@ document_paths = [] # Stores paths to original files for context
 LLM_MODEL_NAME = "yam-peleg/Hebrew-Mistral-7B"
 EMBEDDING_MODEL_NAME = "all-MiniLM-L6-v2"
 
-# Point to where your XML content will be
-CONTENT_DIR = os.path.join(os.path.dirname(__file__), "..", "..", "data", "content")
+# Point to where your JSON content will be
+# Ensure hebrew_bible_with_nikkud.json is in this directory: D:\AI\Gits\hebrew_tutor_ai_poc\data\content\
+CONTENT_FILE = os.path.join(os.path.dirname(__file__), "..", "..", "data", "content", "hebrew_bible_with_nikkud.json")
 FAISS_INDEX_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "data", "embeddings", "content_faiss.index")
 DOCUMENTS_PATH = os.path.join(os.path.dirname(__file__), "..", "..", "data", "embeddings", "content_docs.txt")
 
@@ -69,127 +68,77 @@ def load_embedding_model():
 
 # --- Content Processing & Indexing ---
 
-def load_and_chunk_content(content_dir: str) -> Tuple[List[str], List[str]]:
+def load_and_chunk_content(content_file: str) -> Tuple[List[str], List[str]]:
     """
-    Loads text content from XML files in a directory and chunks it by verse.
-    This version uses lxml to parse the structured XML (UXLC format) and explicitly
-    handles XML namespaces to ensure correct element selection, and adds more robust
-    attribute extraction and debugging.
+    Loads text content from a JSON file and chunks it by verse.
+    Expected JSON structure: { "BookAbbr": [ [ [ "word1", "word2" ], ... ], ... ] }
     """
     global documents, document_paths
     documents = []
     document_paths = []
-    print(f"RAG Debug: Attempting to load content from: {content_dir}")
-    if not os.path.exists(content_dir):
-        print(f"RAG Debug: Content directory NOT FOUND: {content_dir}. Please ensure XML files are placed here.")
+    print(f"RAG Debug: Attempting to load content from JSON: {content_file}")
+
+    if not os.path.exists(content_file):
+        print(f"RAG Debug: Content JSON file NOT FOUND: {content_file}. Please ensure 'hebrew_bible_with_nikkud.json' is placed in the 'data/content' directory.")
         return [], []
 
-    for root_dir, _, files in os.walk(content_dir):
-        for file_name in files:
-            if file_name.lower().endswith(".xml"): # Look for XML files
-                file_path = os.path.join(root_dir, file_name)
-                # Skip known metadata XML files if they exist and contain only schema/notes
-                if "tanach.xml" in file_name.lower() or "tanach.xsd" in file_name.lower() or "tanachheader.xml" in file_name.lower() or "tanachindex.xml" in file_name.lower():
-                    print(f"RAG Debug: Skipping known metadata XML file: {file_path}")
-                    continue
+    # Mapping for JSON book abbreviations to full names (for frontend display and consistent lookup)
+    # These values must EXACTLY match the 'id' and 'name' in the frontend's books array in main.py
+    book_abbr_to_full_name_map = {
+        'Gen': 'Genesis', 'Exod': 'Exodus', 'Lev': 'Leviticus', 'Num': 'Numbers',
+        'Deut': 'Deuteronomy', 'Josh': 'Joshua', 'Judg': 'Judges', 'Ruth': 'Ruth',
+        '1Sam': '1 Samuel', '2Sam': '2 Samuel', '1Kgs': '1 Kings', '2Kgs': '2 Kings',
+        'Isa': 'Isaiah', 'Jer': 'Jeremiah', 'Ezek': 'Ezekiel', 'Hos': 'Hosea',
+        'Joel': 'Joel', 'Amos': 'Amos', 'Obad': 'Obadiah', 'Jonah': 'Jonah',
+        'Mic': 'Micah', 'Nah': 'Nahum', 'Hab': 'Habbakuk', 'Zeph': 'Zephaniah',
+        'Hag': 'Haggai', 'Zech': 'Zechariah', 'Mal': 'Malachi', 'Ps': 'Psalms',
+        'Prov': 'Proverbs', 'Job': 'Job', 'Song': 'Song of Songs', 
+        'Lam': 'Lamentations', 'Eccl': 'Koheleth (Ecclesiastes)', 'Esth': 'Esther',
+        'Dan': 'Daniel', 'Ezra': 'Ezra', 'Neh': 'Nehemiah', '1Chr': '1 Chronicles',
+        '2Chr': '2 Chronicles', 
+    }
 
-                print(f"RAG Debug: Processing XML file: {file_path}")
-                
-                try:
-                    tree = etree.parse(file_path) # type: ignore
-                    root = tree.getroot()
+    try:
+        with open(content_file, mode='r', encoding='utf-8') as file:
+            data = json.load(file)
 
-                    # Extract default namespace if present
-                    namespace_match = re.match(r'\{([^}]+)\}', root.tag)
-                    ns = {'ns': namespace_match.group(1)} if namespace_match else {}
+        for book_abbr, chapters_data in data.items():
+            # Convert JSON book abbreviation (e.g., 'Gen', '1Chr') to full name (e.g., 'Genesis', '1 Chronicles')
+            book_name = book_abbr_to_full_name_map.get(book_abbr, book_abbr) # Fallback to abbr if not in map
+
+            for chapter_num, verses_data in enumerate(chapters_data, start=1):
+                # Ensure chapter_num is an integer for consistency
+                chapter_num_int = int(chapter_num) 
+                for verse_num, words_list in enumerate(verses_data, start=1):
+                    # Ensure verse_num is an integer
+                    verse_num_int = int(verse_num)
+
+                    # Join words to form the full verse text
+                    hebrew_text = " ".join(words_list)
                     
-                    print(f"RAG Debug: Detected namespace: {ns}")
-
-                    # --- Robust Book Name Extraction ---
-                    book_name = os.path.splitext(file_name)[0] # Default to filename
-                    
-                    # Try to get from teiHeader first (most reliable)
-                    book_title_xpath_tei = "//ns:teiHeader/ns:fileDesc/ns:titleStmt/ns:title[@level='a' and @type='main']" if ns else "//teiHeader/fileDesc/titleStmt/title[@level='a' and @type='main']"
-                    book_title_elem_tei = tree.xpath(book_title_xpath_tei, namespaces=ns)
-                    if book_title_elem_tei and book_title_elem_tei[0].text:
-                        book_name = book_title_elem_tei[0].text.strip()
-                        print(f"RAG Debug: Extracted book name from teiHeader: {book_name}")
+                    if hebrew_text:
+                        # Format: "FullBookName Chapter:Verse: Word1 Word2 ..."
+                        full_identifier = f"{book_name} {chapter_num_int}:{verse_num_int}"
+                        documents.append(full_identifier + ": " + hebrew_text)
+                        document_paths.append(f"{book_name}:{chapter_num_int}:{verse_num_int}")
+                        # Print only a few for brevity during large loads
+                        if len(documents) % 1000 == 0: 
+                            print(f"RAG Debug: Added chunk {len(documents)}: {full_identifier}: {hebrew_text[:50]}...")
                     else:
-                        # Fallback to book element's 'name' attribute
-                        book_elem_for_name = tree.xpath("//ns:book" if ns else "//book", namespaces=ns)
-                        if book_elem_for_name and book_elem_for_name[0].get("name"):
-                            book_name = book_elem_for_name[0].get("name").strip()
-                            print(f"RAG Debug: Extracted book name from <book> element 'name' attribute: {book_name}")
-                        else:
-                            print(f"RAG Debug: Could not find book name in teiHeader or <book> element. Using filename: {book_name}")
+                        print(f"RAG Debug: No Hebrew content found for {book_name} {chapter_num_int}:{verse_num_int}. Skipping.")
 
-                    # Iterate through books within the <tanach> root element
-                    # The <book> elements are children of <tanach> (lowercase 't')
-                    # Adjusted XPath to target books under <tanach>
-                    book_xpath = "//ns:tanach/ns:book" if ns else "//tanach/book" 
-
-                    # Corrected chapter and verse XPaths based on your XML snippet
-                    chapter_xpath = "./ns:c" if ns else "./c" # Chapter tag is 'c'
-                    verse_xpath = "./ns:v" if ns else "./v"     # Verse tag is 'v'
-                    word_xpath = ".//ns:w" if ns else ".//w"
-
-                    book_elements = tree.xpath(book_xpath, namespaces=ns)
-                    if not book_elements:
-                        print(f"RAG Debug: No <book> element found in {file_path} using XPath '{book_xpath}'. Skipping file content parsing.")
-                        continue
-                    
-                    for book_elem in book_elements:
-                        print(f"RAG Debug: Found <book> element with tag: {book_elem.tag}")
-
-                        chapters_found = False
-                        for chapter_elem in book_elem.xpath(chapter_xpath, namespaces=ns):
-                            chapters_found = True
-                            chapter_num = chapter_elem.get("n")
-                            if not chapter_num:
-                                print(f"RAG Debug: No 'n' attribute for chapter in {file_path}. Skipping chapter.")
-                                continue
-                            
-                            print(f"RAG Debug: Processing Chapter: {chapter_num}")
-                            
-                            verses_found = False
-                            for verse_elem in chapter_elem.xpath(verse_xpath, namespaces=ns):
-                                verses_found = True
-                                verse_num = verse_elem.get("n")
-                                if not verse_num:
-                                    print(f"RAG Debug: No 'n' attribute for verse in Chapter {chapter_num} of {file_path}. Skipping verse.")
-                                    continue
-                                
-                                # Extract all text from <w> (word) elements within the verse
-                                hebrew_words = [w.text.strip() for w in verse_elem.xpath(word_xpath, namespaces=ns) if w.text is not None]
-                                
-                                verse_content = " ".join(hebrew_words)
-                                
-                                if verse_content:
-                                    verse_content = re.sub(r'\s+', ' ', verse_content).strip()
-                                    
-                                    full_identifier = f"{book_name} {chapter_num}:{verse_num}"
-                                    documents.append(full_identifier + ": " + verse_content)
-                                    document_paths.append(f"{book_name}:{chapter_num}:{verse_num}")
-                                    print(f"RAG Debug: Added chunk: {full_identifier}: {verse_content[:50]}...")
-                                else:
-                                    print(f"RAG Debug: No Hebrew content found for verse {book_name} {chapter_num}:{verse_num} in {file_path}. Skipping.")
-                            
-                            if not verses_found:
-                                print(f"RAG Debug: No <v> elements found in Chapter {chapter_num} of {file_path} using XPath '{verse_xpath}'.")
-                        
-                        if not chapters_found:
-                            print(f"RAG Debug: No <c> elements found in book '{book_name}' in {file_path} using XPath '{chapter_xpath}'.")
-
-                except etree.XMLSyntaxError as e:
-                    print(f"RAG Debug: XML Syntax Error in {file_path}: {e}. Skipping file.")
-                except Exception as e:
-                    print(f"RAG Debug: Error processing XML file {file_path}: {e}")
-                    import traceback
-                    traceback.print_exc()
+    except json.JSONDecodeError as e:
+        print(f"RAG Debug: JSON Decode Error in {content_file}: {e}. Please check JSON format.")
+        import traceback
+        traceback.print_exc()
+    except Exception as e:
+        print(f"RAG Debug: Error processing JSON file {content_file}: {e}")
+        import traceback
+        traceback.print_exc()
     
-    print(f"RAG Debug: Loaded {len(documents)} content chunks from {content_dir}.")
+    print(f"RAG Debug: Loaded {len(documents)} content chunks from {content_file}.")
     if not documents:
-        print("RAG Debug: WARNING: No documents were loaded. FAISS index will be empty.")
+        print("RAG Debug: WARNING: No documents were loaded from JSON. FAISS index will be empty.")
     return documents, document_paths
 
 def create_or_load_faiss_index(docs: List[str]):
@@ -249,12 +198,11 @@ async def get_rag_response(query: str, top_k: int = 3) -> str:
         await load_llm_model()
     if embedding_model is None:
         load_embedding_model()
+    # No need to re-initialize RAG components here, just get the documents
     if faiss_index is None or not documents:
-        print("RAG Debug: RAG components not fully initialized. Attempting to re-initialize.")
-        docs_from_files, _ = load_and_chunk_content(CONTENT_DIR)
-        create_or_load_faiss_index(docs_from_files)
-        if faiss_index is None or not documents:
-            return "Error: RAG content not initialized. No documents found or index could not be created."
+        # This case should ideally not be hit if startup_event runs correctly
+        print("RAG Debug: RAG components not fully initialized when calling get_rag_response. This is unexpected.")
+        return "Error: RAG content not initialized. No documents found or index could not be created."
 
     # Assert that models/tokenizer/index are not None for Pylance
     assert llm_model is not None, "LLM model not loaded."
@@ -282,6 +230,7 @@ async def get_rag_response(query: str, top_k: int = 3) -> str:
     prompt = (
         f"Based *only* on the following context, answer the question concisely and directly. "
         f"Do not include any conversational filler, greetings, or suggestions for further questions. "
+        f"Do not start your answer with 'Response:'. "
         f"If the answer is not explicitly in the context, state that you cannot answer based on the provided context.\n\n"
         f"Context:\n{context}\n\n"
         f"Question: {query}\n"
@@ -296,16 +245,18 @@ async def get_rag_response(query: str, top_k: int = 3) -> str:
         max_new_tokens=200,
         num_return_sequences=1,
         do_sample=True,
-        temperature=0.4, # <--- Lower temperature for less randomness
+        temperature=0.4, # Lowered for more focused responses
         top_p=0.9,
         pad_token_id=llm_tokenizer.eos_token_id
     )
     response_text = llm_tokenizer.decode(outputs[0], skip_special_tokens=True)
 
-    # Post-process to extract only the answer part
-    # Keep this as is, it's already good for stripping the "Answer:" prefix
+    # Post-process to extract only the answer part and remove "Response:"
     if "Answer:" in response_text:
         response_text = response_text.split("Answer:", 1)[1].strip()
+    # Check for "Response:" at the beginning of the string and remove it
+    if response_text.lower().startswith("response:"):
+        response_text = response_text[len("response:"):].strip()
     elif "Question:" in response_text:
          response_text = response_text.split("Question:", 1)[0].strip()
     elif "Context:" in response_text:
@@ -314,13 +265,17 @@ async def get_rag_response(query: str, top_k: int = 3) -> str:
     print(f"LLM generated response.")
     return response_text
 
-# --- Initialization on module import ---
+def get_loaded_documents() -> List[str]:
+    """Returns the list of loaded RAG documents."""
+    return documents
+
 async def initialize_rag():
     """Initializes all RAG components."""
     print("Initializing RAG module...")
     await load_llm_model()
     load_embedding_model()
-    docs, _ = load_and_chunk_content(CONTENT_DIR)
+    # --- MODIFIED: Pass CONTENT_FILE instead of CONTENT_DIR ---
+    docs, _ = load_and_chunk_content(CONTENT_FILE) 
     create_or_load_faiss_index(docs)
     print("RAG module initialization complete.")
 

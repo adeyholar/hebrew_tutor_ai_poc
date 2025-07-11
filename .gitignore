@@ -11,4 +11,5 @@ venv/
 *.log
 data/user_progress/*.db
 data/content/
-
+*.mp3
+*.wav
