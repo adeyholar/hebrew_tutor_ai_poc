@@ -9,7 +9,6 @@ from aeneas.task import Task
 from aeneas.language import Language
 from aeneas.syncmap import SyncMapFormat
 from aeneas.textfile import TextFileFormat
-from aeneas.runtimeconfiguration import RuntimeConfiguration  # Added for unlisted langs
 import traceback
 from typing import List, Dict, Any
 import subprocess  # Modular validation for voices
@@ -56,10 +55,9 @@ async def generate_timestamps(book_name: str, chapter_num: int, hebrew_text_vers
     # Full path for eSpeak-NG binary (secure, fixes [WinError 2])
     espeak_bin = r"C:\Program Files\eSpeak NG\bin\espeak-ng.exe"
 
-    # Validate Hebrew Voice (secure subprocess with full path, utf-8 decode for non-ASCII)
+    # Validate Hebrew Voice (secure subprocess with full path, fallback warning)
     try:
-        process = subprocess.run([espeak_bin, '--voices'], capture_output=True, check=True)
-        voices_output = process.stdout.decode('utf-8', errors='ignore')
+        voices_output = subprocess.run([espeak_bin, '--voices'], capture_output=True, text=True, check=True).stdout
         if 'he' not in voices_output.lower():
             raise ValueError("Hebrew ('he') voice not found in eSpeak-NG.")
         print("ALIGNMENT: Hebrew voice validated in eSpeak-NG.")
@@ -86,11 +84,10 @@ async def generate_timestamps(book_name: str, chapter_num: int, hebrew_text_vers
             temp_text_file.write(text_content_for_aeneas)
             temp_text_path = temp_text_file.name
 
-        # Aeneas Config (use 'he' for eSpeak-ng voice code)
+        # Aeneas Config (use 'heb' for Hebrew—Aeneas ISO 639-3 code)
         config_string = (
             "tts=espeak-ng|"
-            f"tts_path={espeak_bin}|"  # Modular full path for scalability/security
-            "task_language=he|"  # Changed to 'he' for eSpeak-ng
+            "task_language=heb|"
             "osr=mfcc|"
             "is_text_type=plain|"
             "os_task_file_format=json|"
@@ -103,12 +100,8 @@ async def generate_timestamps(book_name: str, chapter_num: int, hebrew_text_vers
         task.text_file_path_absolute = temp_text_path
         task.sync_map_file_path_absolute = sync_file_path
 
-        # Runtime Config (allow unlisted languages like 'he' for Hebrew)
-        rconf = RuntimeConfiguration()
-        rconf.allow_unlisted_languages = True
-
-        # Execute (async thread for backend elasticity, with rconf)
-        await asyncio.to_thread(ExecuteTask(task, rconf=rconf).execute)
+        # Execute (async thread for backend elasticity)
+        await asyncio.to_thread(ExecuteTask(task).execute)
 
         # Load & Map Fragments (modular post-process, scalable heuristic for grouping)
         with open(sync_file_path, 'r', encoding='utf-8') as f:
