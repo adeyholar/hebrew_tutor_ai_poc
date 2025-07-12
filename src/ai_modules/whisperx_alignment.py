@@ -146,7 +146,8 @@ async def generate_whisperx_timestamps(
             )
             last_end += 0.5
             print(
-                f"WHISPERX WARNING: Placeholder timestamp for unmatched word '{known_words[remaining_idx]}'"
+                f"WHISPER WARNING: Placeholder timestamp for unmatched word "
+                f"'{known_words[remaining_idx]}'"
             )
 
     # Save Enriched JSON (secure encoding)
