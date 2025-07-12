@@ -8,13 +8,14 @@ import os
 import shutil
 import uuid
 import sys
-from typing import Dict, List
+from typing import Dict, List, Any
 import aiofiles
 import traceback
 import re
 
 from src.ai_modules.asr_module import load_whisper_model, transcribe_audio
 from src.ai_modules.rag_module import initialize_rag, get_rag_response, get_loaded_documents 
+from src.ai_modules.alignment_module import generate_timestamps # NEW IMPORT
 
 # Define paths for static files and temporary uploads
 STATIC_FILES_DIR = os.path.join(os.path.dirname(__file__), "..", "ui")
@@ -101,11 +102,19 @@ async def read_root():
                 margin-left: 10px;
                 color: #555;
             }
-            /* NEW: Highlighting style */
+            /* Highlighting style */
             .highlight {
                 background-color: #ffeb3b; /* A yellow highlight */
                 border-radius: 3px;
                 padding: 2px 0;
+            }
+            /* Loading indicator for alignment */
+            #alignmentStatus {
+                margin-top: 10px;
+                font-size: 0.9em;
+                color: #007bff;
+                font-weight: bold;
+                display: none; /* Hidden by default */
             }
         </style>
     </head>
@@ -146,7 +155,7 @@ async def read_root():
                     <!-- Options will be populated dynamically -->
                 </select>
                 <button id="loadChapterTextButton">Load Chapter Text</button>
-                <button id="playChapterAudioButton" disabled>Play Chapter Audio</button> <!-- RENAMED ID AND TEXT, DISABLED BY DEFAULT -->
+                <button id="playChapterAudioButton" disabled>Play Chapter Audio</button> 
             </div>
             <div style="margin-top: 10px;">
                 <label for="playbackSpeedSelect">Playback Speed:</label>
@@ -160,6 +169,7 @@ async def read_root():
                     <option value="2.0">200%</option>
                 </select>
             </div>
+            <div id="alignmentStatus">Generating timestamps...</div> <!-- NEW: Alignment Status -->
             <div id="audioPlaybackStatus" style="margin-top: 10px;">Ready.</div>
             <audio id="audioPlayer" controls style="width: 100%; margin-top: 10px;"></audio>
             
@@ -308,13 +318,14 @@ async def read_root():
                 const playbackSpeedSelect = document.getElementById('playbackSpeedSelect');
                 const hebrewTextDisplay = document.getElementById('hebrewTextDisplay');
                 const textDisplayStatus = document.getElementById('textDisplayStatus');
+                const alignmentStatusDiv = document.getElementById('alignmentStatus'); // NEW
 
-                // Store loaded verses globally for highlighting logic
-                let loadedVerses = [];
+                // Store loaded verses and their timestamps globally for highlighting logic
+                let loadedVerses = []; // Raw verse data from /get_chapter_text
+                let wordTimestamps = []; // Array of {word: "...", start: X, end: Y, verseIndex: V, wordIndex: W} objects
                 let currentHighlightedWordId = null;
-                let totalWordsInChapter = 0; // Track total words for dynamic duration calculation
-                // IMPORTANT: Adjust this offset based on your audio files' actual introduction length
-                const audioOffsetSeconds = 8.0; // Estimated time in seconds for the introduction
+                
+                // Removed audioOffsetSeconds and totalWordsInChapter as they are replaced by Aeneas timestamps
 
                 // --- DEBUGGING: Check if elements are found ---
                 console.log("DEBUG: bookSelect element found:", bookSelect);
@@ -375,7 +386,6 @@ async def read_root():
 
 
                 // Populate the book select dropdown
-                // Only proceed if bookSelect is found (not null)
                 if (bookSelect) {
                     books.forEach(book => {
                         const option = document.createElement('option');
@@ -400,8 +410,9 @@ async def read_root():
                     hebrewTextDisplay.innerHTML = ''; // Clear text display
                     textDisplayStatus.textContent = "Select a chapter.";
                     loadedVerses = []; // Clear loaded verses on book change
-                    totalWordsInChapter = 0; // Reset total words
+                    wordTimestamps = []; // Clear timestamps
                     resetHighlight(); // Clear any existing highlight
+                    alignmentStatusDiv.style.display = 'none'; // Hide alignment status
 
                     if (selectedBook) {
                         for (let i = 1; i <= selectedBook.chapters; i++) {
@@ -420,8 +431,9 @@ async def read_root():
                     hebrewTextDisplay.innerHTML = ''; // Clear text display on chapter change
                     textDisplayStatus.textContent = "Click 'Load Chapter Text'.";
                     loadedVerses = []; // Clear loaded verses on chapter change
-                    totalWordsInChapter = 0; // Reset total words
+                    wordTimestamps = []; // Clear timestamps
                     resetHighlight(); // Clear any existing highlight
+                    alignmentStatusDiv.style.display = 'none'; // Hide alignment status
                 };
 
                 loadChapterTextButton.onclick = async () => {
@@ -436,48 +448,74 @@ async def read_root():
                     hebrewTextDisplay.innerHTML = '';
                     textDisplayStatus.textContent = `Loading ${selectedBookId} Chapter ${selectedChapter}...`;
                     loadedVerses = []; // Reset loaded verses before fetching
-                    totalWordsInChapter = 0; // Reset total words before fetching
+                    wordTimestamps = []; // Reset timestamps
                     resetHighlight(); // Clear any existing highlight
+                    playChapterAudioButton.disabled = true; // Disable audio button until text and timestamps are ready
+                    alignmentStatusDiv.style.display = 'block'; // Show alignment status
+                    alignmentStatusDiv.textContent = "Loading text and preparing for audio alignment...";
+
 
                     try {
-                        const response = await fetch(`/get_chapter_text/${selectedBookId}/${selectedChapter}`);
-                        if (response.ok) {
-                            const result = await response.json();
-                            if (result.verses && result.verses.length > 0) {
-                                loadedVerses = result.verses; // Store loaded verses for highlighting
-                                hebrewTextDisplay.innerHTML = ''; // Clear previous content
+                        // 1. Fetch Chapter Text
+                        const textResponse = await fetch(`/get_chapter_text/${selectedBookId}/${selectedChapter}`);
+                        if (!textResponse.ok) {
+                            const errorData = await textResponse.json();
+                            throw new Error(`Error loading text: ${errorData.detail || textResponse.statusText}`);
+                        }
+                        const textResult = await textResponse.json();
+
+                        if (textResult.verses && textResult.verses.length > 0) {
+                            loadedVerses = textResult.verses; // Store loaded verses
+                            hebrewTextDisplay.innerHTML = ''; // Clear previous content
+                            let totalWordsCount = 0; // Count words for potential fallback or info
+                            loadedVerses.forEach((verse, verseIndex) => {
+                                const verseDiv = document.createElement('div');
+                                verseDiv.className = 'hebrew-verse';
+                                let verseHtml = `<span>${verse.verse_num}.</span> `;
                                 
-                                loadedVerses.forEach((verse, verseIndex) => {
-                                    const verseDiv = document.createElement('div');
-                                    verseDiv.className = 'hebrew-verse';
-                                    let verseHtml = `<span>${verse.verse_num}.</span> `;
-                                    
-                                    // Wrap each word in a span with a unique ID for highlighting
-                                    verse.text.forEach((word, wordIndex) => {
-                                        const wordId = `word-${verseIndex}-${wordIndex}`;
-                                        verseHtml += `<span id="${wordId}">${word}</span> `;
-                                        totalWordsInChapter++; // Increment total words
-                                    });
-                                    verseDiv.innerHTML = verseHtml.trim(); // Trim trailing space
-                                    hebrewTextDisplay.appendChild(verseDiv);
+                                // Wrap each word in a span with a unique ID for highlighting
+                                verse.text.forEach((word, wordIndex) => {
+                                    const wordId = `word-${verseIndex}-${wordIndex}`;
+                                    verseHtml += `<span id="${wordId}">${word}</span> `;
+                                    totalWordsCount++;
                                 });
-                                textDisplayStatus.textContent = `Loaded ${loadedVerses.length} verses (${totalWordsInChapter} words) for ${selectedBookId} Chapter ${selectedChapter}.`;
-                                playChapterAudioButton.disabled = false; // Enable audio button once text is loaded
-                            } else {
-                                hebrewTextDisplay.innerHTML = '<p>No verses found for this chapter.</p>';
-                                textDisplayStatus.textContent = `No text found for ${selectedBookId} Chapter ${selectedChapter}.`;
-                                playChapterAudioButton.disabled = true; // Keep audio button disabled
+                                verseDiv.innerHTML = verseHtml.trim(); // Trim trailing space
+                                hebrewTextDisplay.appendChild(verseDiv);
+                            });
+                            textDisplayStatus.textContent = `Loaded ${loadedVerses.length} verses (${totalWordsCount} words) for ${selectedBookId} Chapter ${selectedChapter}.`;
+                            
+                            // 2. Fetch Timestamps for Alignment
+                            alignmentStatusDiv.textContent = "Generating/Loading word timestamps (this may take a moment for new chapters)...";
+                            const timestampResponse = await fetch(`/get_chapter_timestamps/${selectedBookId}/${selectedChapter}`);
+                            if (!timestampResponse.ok) {
+                                const errorData = await timestampResponse.json();
+                                throw new Error(`Error fetching timestamps: ${errorData.detail || timestampResponse.statusText}`);
                             }
+                            wordTimestamps = await timestampResponse.json();
+                            console.log("DEBUG: Fetched wordTimestamps:", wordTimestamps);
+
+                            if (wordTimestamps.length > 0) {
+                                alignmentStatusDiv.textContent = `Timestamps loaded for ${wordTimestamps.length} words.`;
+                                playChapterAudioButton.disabled = false; // Enable audio button once text and timestamps are ready
+                            } else {
+                                alignmentStatusDiv.textContent = "No timestamps found/generated. Audio highlighting will not work.";
+                                playChapterAudioButton.disabled = false; // Still allow playing audio without highlight
+                            }
+
                         } else {
-                            const errorData = await response.json();
-                            textDisplayStatus.textContent = `Error loading text: ${errorData.detail || response.statusText}`;
-                            console.error('Error fetching chapter text:', errorData);
-                            playChapterAudioButton.disabled = true; // Keep audio button disabled on error
+                            hebrewTextDisplay.innerHTML = '<p>No verses found for this chapter.</p>';
+                            textDisplayStatus.textContent = `No text found for ${selectedBookId} Chapter ${selectedChapter}.`;
+                            playChapterAudioButton.disabled = true; 
+                            alignmentStatusDiv.textContent = "No text to align.";
                         }
                     } catch (error) {
-                        textDisplayStatus.textContent = `Network Error: ${error.message}`;
-                        console.error('Network error fetching chapter text:', error);
-                        playChapterAudioButton.disabled = true; // Keep audio button disabled on network error
+                        textDisplayStatus.textContent = `Error: ${error.message}`;
+                        alignmentStatusDiv.textContent = `Alignment Error: ${error.message}`;
+                        console.error('Loading/Alignment error:', error);
+                        playChapterAudioButton.disabled = true; 
+                    } finally {
+                        // Ensure alignment status is hidden or shows final state
+                        // alignmentStatusDiv.style.display = 'none'; // Could hide it completely after success/failure
                     }
                 };
 
@@ -489,6 +527,9 @@ async def read_root():
                     if (!selectedBookId || !selectedChapter) {
                         audioPlaybackStatus.textContent = "Please select both a book and a chapter.";
                         return;
+                    }
+                    if (wordTimestamps.length === 0) {
+                        audioPlaybackStatus.textContent = "Warning: No timestamps available. Playing audio without highlighting.";
                     }
 
                     // Mapping from frontend ID (full name) to audio filename prefix (hbof[BookAbbr])
@@ -547,10 +588,12 @@ async def read_root():
                     if (selectedBookId === 'Obadiah') {
                         audioFilename = `${baseAudioName}.mp3`;
                     } else if (selectedBookId === 'Psalms') {
-                        const paddedChapter = String(selectedChapter).padStart(3, '0');
+                        // Python's str.zfill() is equivalent to JS padStart for numbers
+                        const paddedChapter = String(selectedChapter).zfill(3); // FIX: Use zfill
                         audioFilename = `${baseAudioName}_${paddedChapter}.mp3`;
                     } else {
-                        const paddedChapter = String(selectedChapter).padStart(2, '0');
+                        // Python's str.zfill() is equivalent to JS padStart for numbers
+                        const paddedChapter = String(selectedChapter).zfill(2); // FIX: Use zfill
                         audioFilename = `${baseAudioName}_${paddedChapter}.mp3`;
                     }
                     
@@ -563,10 +606,8 @@ async def read_root():
                         .then(() => {
                             audioPlaybackStatus.textContent = `Playing: ${audioFilename} at ${audioPlayer.playbackRate * 100}% speed.`;
                             console.log(`Successfully initiated playback for: ${audioUrl}`);
-                            // Reset highlight on new playback
-                            resetHighlight();
-                            // Start playing from the offset
-                            audioPlayer.currentTime = audioOffsetSeconds;
+                            resetHighlight(); // Reset highlight on new playback
+                            // No need to set currentTime here, Aeneas handles the actual start time
                         })
                         .catch(error => {
                             audioPlaybackStatus.textContent = `Error playing audio: ${error.message}. Please ensure the audio file '${audioFilename}' exists in the 'data/tanakh_audio' directory and is not corrupted.`;
@@ -584,65 +625,47 @@ async def read_root():
                         }
                         currentHighlightedWordId = null;
                     }
-                    // Also remove highlights from any other words that might be highlighted
                     document.querySelectorAll('.highlight').forEach(el => el.classList.remove('highlight'));
                 }
 
-                // --- NEW: Audio Time Update Listener for Highlighting ---
+                // --- UPDATED: Audio Time Update Listener for Highlighting (using Aeneas timestamps) ---
                 audioPlayer.ontimeupdate = () => {
-                    if (loadedVerses.length === 0 || audioPlayer.duration === 0) return; // No text or audio loaded
-
-                    const currentTime = audioPlayer.currentTime;
-                    // Adjust current time by the offset
-                    const effectiveCurrentTime = currentTime - audioOffsetSeconds;
-
-                    // Calculate simulated word duration based on actual audio length (minus offset) and total words
-                    const effectiveAudioDuration = audioPlayer.duration - audioOffsetSeconds;
-                    // Ensure effectiveAudioDuration is positive to avoid division by zero or negative values
-                    const simulatedWordDuration = totalWordsInChapter > 0 && effectiveAudioDuration > 0 
-                                                  ? effectiveAudioDuration / totalWordsInChapter 
-                                                  : 0.5; // Fallback to 0.5 seconds if calculation is invalid
-
-                    let cumulativeTimeForHighlight = 0; // This tracks time for highlighting logic
-                    let foundWordToHighlight = false;
-
-                    // Iterate through all words in the loaded chapter to find the one to highlight
-                    for (let i = 0; i < loadedVerses.length; i++) {
-                        const verse = loadedVerses[i];
-                        for (let j = 0; j < verse.text.length; j++) {
-                            const wordId = `word-${i}-${j}`;
-                            const wordElement = document.getElementById(wordId);
-                            
-                            const wordStartTime = cumulativeTimeForHighlight;
-                            const wordEndTime = cumulativeTimeForHighlight + simulatedWordDuration;
-
-                            // Check if the effective current time falls within this word's simulated duration
-                            if (effectiveCurrentTime >= wordStartTime && effectiveCurrentTime < wordEndTime) {
-                                if (currentHighlightedWordId !== wordId) {
-                                    // Remove previous highlight
-                                    if (currentHighlightedWordId) {
-                                        const prevHighlighted = document.getElementById(currentHighlightedWordId);
-                                        if (prevHighlighted) prevHighlighted.classList.remove('highlight');
-                                    }
-                                    // Apply new highlight
-                                    if (wordElement) {
-                                        wordElement.classList.add('highlight');
-                                        currentHighlightedWordId = wordId;
-
-                                        // Optional: Scroll to the highlighted word (enable with caution)
-                                        // wordElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
-                                    }
-                                }
-                                foundWordToHighlight = true;
-                                break; // Found the word for current time, exit inner loop
-                            }
-                            cumulativeTimeForHighlight += simulatedWordDuration;
-                        }
-                        if (foundWordToHighlight) break; // Found the word, exit outer loop
+                    if (wordTimestamps.length === 0) {
+                        return; // No timestamps loaded to highlight
                     }
 
-                    // If audio has ended or effectiveCurrentTime is outside the range of words, clear highlight
-                    if (!foundWordToHighlight && currentHighlightedWordId && effectiveCurrentTime >= effectiveAudioDuration) {
+                    const currentTime = audioPlayer.currentTime;
+                    
+                    // Find the word to highlight based on actual timestamps
+                    let foundWordToHighlight = false;
+                    for (let i = 0; i < wordTimestamps.length; i++) {
+                        const wordData = wordTimestamps[i];
+                        const wordId = `word-${wordData.verseIndex}-${wordData.wordIndex}`; // Reconstruct ID
+
+                        // Check if the current time falls within this word's actual start and end times
+                        if (currentTime >= wordData.start && currentTime < wordData.end) {
+                            if (currentHighlightedWordId !== wordId) {
+                                // Remove previous highlight
+                                if (currentHighlightedWordId) {
+                                    const prevHighlighted = document.getElementById(currentHighlightedWordId);
+                                    if (prevHighlighted) prevHighlighted.classList.remove('highlight');
+                                }
+                                // Apply new highlight
+                                const currentWordElement = document.getElementById(wordId);
+                                if (currentWordElement) {
+                                    currentWordElement.classList.add('highlight');
+                                    currentHighlightedWordId = wordId;
+                                    // Optional: Scroll to the highlighted word (enable with caution)
+                                    // currentWordElement.scrollIntoView({ behavior: 'smooth', block: 'center' });
+                                }
+                            }
+                            foundWordToHighlight = true;
+                            break; // Found the word for current time, exit loop
+                        }
+                    }
+
+                    // If audio has ended or current time is past all words, clear highlight
+                    if (!foundWordToHighlight && currentHighlightedWordId && currentTime >= audioPlayer.duration) {
                         resetHighlight();
                     }
                 };
@@ -666,9 +689,8 @@ async def read_root():
                     resetHighlight(); // Clear highlight on error
                 };
                 
-                // NEW: Reset highlight on pause or seeking
                 audioPlayer.onpause = () => {
-                    // Optionally keep highlight on pause, or reset. For now, let's reset.
+                    // Decide if you want to clear highlight on pause. For now, let's keep it.
                     // resetHighlight(); 
                 };
 
@@ -710,33 +732,21 @@ async def get_chapter_text(book_name: str, chapter_num: int):
         # Example doc_entry from JSON parsing: "Genesis 1:1: בְּרֵאשִׁ֖ית בָּרָ֣א אֱלֹהִ֑ים אֵ֥ת הַשָּׁמַ֖יִם וְאֵ֥ת הָאָֽרֶץ׃"
         try:
             # Split from the RIGHT on the first colon to separate identifier from text
-            # This is the KEY FIX for the 404 error
             parts = doc_entry.rsplit(':', 1) 
             if len(parts) < 2:
-                # This could happen if a document entry is malformed (e.g., no colon)
                 print(f"DEBUG: Skipping malformed doc_entry (no text part after identifier): '{doc_entry}'")
                 continue 
 
-            identifier_part = parts[0].strip() # e.g., "Genesis 1:1"
-            verse_text_str = parts[1].strip() # e.g., "בְּרֵאשִׁ֖ית בָּרָ֣א אֱלֹהִ֑ים אֵ֥ת הַשָּׁמַ֖יִם וְאֵ֥ת הָאָֽרֶץ׃"
+            identifier_part = parts[0].strip() 
+            verse_text_str = parts[1].strip() 
 
-            # Regex to extract book, chapter, and verse number
-            # Example: "Genesis 1:1" or "1 Samuel 1:1"
-            # Adjusted regex to handle multi-word book names like "1 Samuel"
             match = re.match(r'(.+?)\s+(\d+):(\d+)', identifier_part)
             if match:
                 doc_book = match.group(1).strip()
                 doc_chapter = int(match.group(2))
                 doc_verse = int(match.group(3))
 
-                # DEBUGGING: Print extracted parts to verify
-                # print(f"DEBUG: Parsed: Book='{doc_book}', Chapter={doc_chapter}, Verse={doc_verse}")
-                # print(f"DEBUG: Looking for: Book='{formatted_book_name}', Chapter={chapter_num}")
-
                 if doc_book == formatted_book_name and doc_chapter == chapter_num:
-                    # The verse_text_str is already a joined string from rag_module.
-                    # We need to return it as a list of words for the frontend to join.
-                    # So, split it back into words.
                     words_list = verse_text_str.split(' ') 
                     chapter_verses.append({
                         "verse_num": doc_verse,
@@ -756,6 +766,100 @@ async def get_chapter_text(book_name: str, chapter_num: int):
         raise HTTPException(status_code=404, detail=f"No verses found for {book_name} Chapter {chapter_num}.")
 
     return {"book": book_name, "chapter": chapter_num, "verses": chapter_verses}
+
+
+# NEW ENDPOINT: Get Chapter Timestamps
+@app.get("/get_chapter_timestamps/{book_name}/{chapter_num}", response_class=JSONResponse)
+async def get_chapter_timestamps(book_name: str, chapter_num: int):
+    """
+    Fetches or generates word-level timestamps for a specific book and chapter.
+    """
+    current_documents = get_loaded_documents()
+    if not current_documents:
+        raise HTTPException(status_code=500, detail="RAG documents not loaded, cannot get text for alignment.")
+
+    # Reconstruct the Hebrew text for the chapter from loaded documents
+    # We need to get the raw verse data from the RAG documents
+    chapter_raw_verses = []
+    for doc_entry in current_documents:
+        try:
+            parts = doc_entry.rsplit(':', 1)
+            if len(parts) < 2:
+                continue
+
+            identifier_part = parts[0].strip()
+            verse_text_str = parts[1].strip()
+
+            match = re.match(r'(.+?)\s+(\d+):(\d+)', identifier_part)
+            if match:
+                doc_book = match.group(1).strip()
+                doc_chapter = int(match.group(2))
+                doc_verse = int(match.group(3))
+
+                if doc_book == book_name and doc_chapter == chapter_num:
+                    chapter_raw_verses.append({
+                        "verse_num": doc_verse,
+                        "text": verse_text_str.split(' ') # Keep as list of words
+                    })
+        except Exception as e:
+            print(f"Error parsing document entry for alignment text: {e}")
+            continue
+    
+    chapter_raw_verses.sort(key=lambda x: x['verse_num'])
+
+    if not chapter_raw_verses:
+        raise HTTPException(status_code=404, detail=f"No text found for {book_name} Chapter {chapter_num} for alignment.")
+
+    # Construct the audio file path
+    audio_book_prefix_map = {
+        '1 Chronicles': 'hbof1Ch', '2 Chronicles': 'hbof2Ch', 'Amos': 'hbofAmo',
+        'Daniel': 'hbofDan', 'Deuteronomy': 'hbofDeu', 'Esther': 'hbofEst',
+        'Exodus': 'hbofExo', 'Ezekiel': 'hbofEzk', 'Ezra': 'hbofEzr',
+        'Genesis': 'hbofGen', 'Habbakuk': 'hbofHab', 'Haggai': 'hbofHag',
+        'Hosea': 'hbofHos', 'Isaiah': 'hbofIsa', 'Jeremiah': 'hbofJer',
+        'Job': 'hbofJob', 'Joel': 'hbofJol', 'Jonah': 'hbofJon',
+        'Joshua': 'hbofJos', 'Judges': 'hbofJdg', '1 Kings': 'hbof1Ki',
+        '2 Kings': 'hbof2Ki', 'Koheleth (Ecclesiastes)': 'hbofEcc',
+        'Lamentations': 'hbofLam', 'Leviticus': 'hbofLev', 'Malachi': 'hbofMal',
+        'Micah': 'hbofMic', 'Nahum': 'hbofNam', 'Nehemiah': 'hbofNeh',
+        'Numbers': 'hbofNum', 'Obadiah': 'hbofOba', 'Proverbs': 'hbofPro',
+        'Psalms': 'hbofPsa', 'Ruth': 'hbofRut', '1 Samuel': 'hbof1Sa',
+        '2 Samuel': 'hbof2Sa', 'Song of Songs': 'hbofSng', 'Zechariah': 'hbofZec',
+        'Zephaniah': 'hbofZep',
+    }
+    base_audio_name = audio_book_prefix_map.get(book_name)
+    if not base_audio_name:
+        raise HTTPException(status_code=400, detail=f"Audio prefix not found for book '{book_name}'.")
+
+    audio_filename = ""
+    if book_name == 'Obadiah':
+        audio_filename = f"{base_audio_name}.mp3"
+    elif book_name == 'Psalms':
+        # FIX: Use zfill() for Python string padding
+        padded_chapter = str(chapter_num).zfill(3)
+        audio_filename = f"{base_audio_name}_{padded_chapter}.mp3"
+    else:
+        # FIX: Use zfill() for Python string padding
+        padded_chapter = str(chapter_num).zfill(2)
+        audio_filename = f"{base_audio_name}_{padded_chapter}.mp3"
+
+    audio_path = os.path.join(AUDIO_DIR, audio_filename)
+    if not os.path.exists(audio_path):
+        raise HTTPException(status_code=404, detail=f"Audio file not found for {book_name} Chapter {chapter_num}: {audio_filename}")
+
+    # Call the alignment module
+    try:
+        # Pass the original hebrew_text_verses (list of dicts with verse_num and text)
+        # The alignment_module will handle flattening and mapping.
+        timestamps = await generate_timestamps(book_name, chapter_num, chapter_raw_verses, audio_path)
+        
+        return timestamps
+
+    except Exception as e:
+        print(f"Error generating timestamps: {e}")
+        import traceback
+        traceback.print_exc()
+        raise HTTPException(status_code=500, detail=f"Failed to generate timestamps: {str(e)}")
 
 
 @app.get("/status")
