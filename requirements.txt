@@ -1,32 +1,188 @@
-# Core Backend & Web Framework
-fastapi==0.111.0
-uvicorn[standard]==0.30.1
-pydantic==2.7.1
-SQLAlchemy==2.0.30
-psycopg2-binary==2.9.9
-python-jose[cryptography]==3.3.0
-bcrypt==4.1.3
-python-multipart==0.0.9 # Updated to 0.0.9
-aiofiles==23.2.1 # Added for async file handling
-
-# AI/ML Dependencies (GPU-enabled)
-# NOTE: torch, torchvision, torchaudio were installed via conda.
-# We list them here for completeness but pip will skip if already installed.
-torch==2.3.0
-torchvision==0.18.0
-torchaudio==2.3.0
-transformers==4.41.2
 accelerate==0.30.1
+aeneas==1.7.3.0
+aiofiles==23.2.1
+aiohappyeyeballs==2.6.1
+aiohttp==3.12.13
+aiosignal==1.4.0
+alembic==1.16.4
+annotated-types==0.7.0
+antlr4-python3-runtime==4.9.3
+anyio==4.9.0
+asteroid-filterbanks==0.4.0
+async-timeout==4.0.3
+attrs==25.3.0
+av==15.0.0
+bcrypt==4.1.3
+beautifulsoup4==4.13.4
 bitsandbytes==0.43.1
-langchain==0.2.1
-openai-whisper==20231117
-ffmpeg-python==0.2.0
-sentence-transformers==2.7.0
+black==24.8.0
+Brotli @ file:///D:/bld/brotli-split_1749229870877/work
+certifi @ file:///home/conda/feedstock_root/build_artifacts/certifi_1749972191589/work/certifi
+cffi @ file:///D:/bld/cffi_1725560649097/work
+charset-normalizer @ file:///home/conda/feedstock_root/build_artifacts/charset-normalizer_1746214863626/work
+click==8.2.1
+colorama==0.4.6
+coloredlogs==15.0.1
+colorlog==6.9.0
+contourpy==1.3.2
+cryptography==45.0.5
+ctranslate2==4.4.0
+cycler==0.12.1
+dnspython==2.7.0
+docopt==0.6.2
+ecdsa==0.19.1
+einops==0.8.1
+email_validator==2.2.0
+exceptiongroup==1.3.0
 faiss-cpu==1.8.0
-
-# Data & Utilities
-
-
-# Logging & Monitoring (for future expansion, good to include now)
+fastapi==0.111.0
+fastapi-cli==0.0.8
+faster-whisper==1.1.1
+ffmpeg-python==0.2.0
+filelock @ file:///home/conda/feedstock_root/build_artifacts/filelock_1741969488311/work
+flake8==7.3.0
+flatbuffers==25.2.10
+fonttools==4.58.5
+frozenlist==1.7.0
+fsspec==2025.5.1
+future==1.0.0
+greenlet==3.2.3
+h11==0.16.0
+h2 @ file:///home/conda/feedstock_root/build_artifacts/h2_1738578511449/work
+hpack @ file:///home/conda/feedstock_root/build_artifacts/hpack_1737618293087/work
+httpcore==1.0.9
+httptools==0.6.4
+httpx==0.28.1
+huggingface-hub==0.33.2
+humanfriendly==10.0
+hyperframe @ file:///home/conda/feedstock_root/build_artifacts/hyperframe_1737618333194/work
+HyperPyYAML==1.2.2
+idna @ file:///home/conda/feedstock_root/build_artifacts/idna_1733211830134/work
+iniconfig==2.1.0
+intel-openmp==2021.4.0
+Jinja2 @ file:///home/conda/feedstock_root/build_artifacts/jinja2_1741263328855/work
+joblib==1.5.1
+jsonpatch==1.33
+jsonpointer==3.0.0
+julius==0.2.7
+kiwisolver==1.4.8
+langchain==0.2.1
+langchain-core==0.2.43
+langchain-text-splitters==0.2.4
+langsmith==0.1.147
+lightning==2.5.2
+lightning-utilities==0.14.3
+llvmlite==0.44.0
+lxml==6.0.0
+Mako==1.3.10
+markdown-it-py==3.0.0
+MarkupSafe @ file:///D:/bld/markupsafe_1733219610373/work
+matplotlib==3.10.3
+mccabe==0.7.0
+mdurl==0.1.2
+mkl==2021.4.0
+more-itertools==10.7.0
+mpmath @ file:///home/conda/feedstock_root/build_artifacts/mpmath_1733302684489/work
+multidict==6.6.3
+mypy_extensions==1.1.0
+networkx @ file:///home/conda/feedstock_root/build_artifacts/bld/rattler-build_networkx_1731521053/work
+nltk==3.9.1
+numba==0.61.2
+numpy==2.2.6
+omegaconf==2.3.0
+onnxruntime==1.22.1
+openai-whisper==20231117
+optuna==4.4.0
+orjson==3.10.18
+packaging==24.2
+pandas==2.3.1
+pathspec==0.12.1
+pdfminer.six==20250506
+pillow @ file:///D:/bld/pillow_1751481993249/work
+platformdirs==4.3.8
+pluggy==1.6.0
+primePy==1.3
+propcache==0.3.2
+protobuf==6.31.1
+psutil==7.0.0
+psycopg2-binary==2.9.9
+pyannote.audio==3.3.2
+pyannote.core==5.0.0
+pyannote.database==5.1.3
+pyannote.metrics==3.2.1
+pyannote.pipeline==3.0.1
+pyasn1==0.6.1
+pycodestyle==2.14.0
+pycparser @ file:///home/conda/feedstock_root/build_artifacts/bld/rattler-build_pycparser_1733195786/work
+pydantic==2.7.1
+pydantic_core==2.18.2
+pyflakes==3.4.0
+Pygments==2.19.2
+pyparsing==3.2.3
+pyreadline3==3.5.4
+PySocks @ file:///D:/bld/pysocks_1733217287171/work
+pytest==8.4.1
+pytest-asyncio==1.0.0
+python-dateutil==2.9.0.post0
+python-dotenv==1.1.1
+python-jose==3.3.0
 python-json-logger==2.0.7
+python-multipart==0.0.9
+pytorch-lightning==2.5.2
+pytorch-metric-learning==2.8.1
+pytz==2025.2
+PyYAML @ file:///D:/bld/pyyaml_1737454681229/work
+regex==2024.11.6
+requests @ file:///home/conda/feedstock_root/build_artifacts/requests_1749498106507/work
+requests-toolbelt==1.0.0
+rich==14.0.0
+rich-toolkit==0.14.8
+rsa==4.9.1
+ruamel.yaml==0.18.14
+ruamel.yaml.clib==0.2.12
+safetensors==0.5.3
+scikit-learn==1.7.0
+scipy==1.15.3
+semver==3.0.4
+sentence-transformers==2.7.0
+sentencepiece==0.2.0
 sentry-sdk==2.0.0
+shellingham==1.5.4
+six==1.17.0
+sniffio==1.3.1
+sortedcontainers==2.4.0
+soundfile==0.13.1
+soupsieve==2.7
+speechbrain==1.0.3
+SQLAlchemy==2.0.30
+starlette==0.37.2
+sympy @ file:///home/conda/feedstock_root/build_artifacts/sympy_1745946057943/work
+tabulate==0.9.0
+tbb==2021.13.1
+tenacity==8.5.0
+tensorboardX==2.6.4
+threadpoolctl==3.6.0
+tiktoken==0.9.0
+tokenizers==0.21.2
+tomli==2.2.1
+torch==2.7.1
+torch-audiomentations==0.12.0
+torch_pitch_shift==1.2.5
+torchaudio==2.7.1
+torchmetrics==1.7.4
+torchvision==0.18.0
+tqdm==4.67.1
+transformers==4.53.2
+typer==0.16.0
+typing-inspection==0.4.1
+typing_extensions @ file:///home/conda/feedstock_root/build_artifacts/bld/rattler-build_typing_extensions_1751643513/work
+tzdata==2025.2
+ujson==5.10.0
+urllib3 @ file:///home/conda/feedstock_root/build_artifacts/urllib3_1750271362675/work
+uvicorn==0.30.1
+watchfiles==1.1.0
+websockets==15.0.1
+whisperx==3.4.2
+win_inet_pton @ file:///D:/bld/win_inet_pton_1733130564612/work
+yarl==1.20.1
+zstandard==0.23.0
