@@ -1,17 +1,18 @@
-from dotenv import load_dotenv
 import os
-import logging
-
-logger = logging.getLogger(__name__)
+from dotenv import load_dotenv
 
 def load_config():
-    # Robust project root calculation (works from any subdir or Docker)
-    current_file = os.path.abspath(__file__)
-    project_root = os.path.dirname(os.path.dirname(os.path.dirname(current_file)))  # backend -> src -> root
-    env_path = os.path.join(project_root, '.env')
-    if not os.path.exists(env_path):
-        logger.error(f".env not found at {env_path}. Check path or create .env in project root.")
-        raise FileNotFoundError(f".env not found at {env_path}")
-    load_dotenv(env_path)
-    logger.info(f"Loaded .env from: {env_path}")
-    return env_path
+    load_dotenv()  # Load /app/.env
+    config = {
+        "DATABASE_URL": os.getenv("DATABASE_URL") or "sqlite:///db.sqlite",
+        "SECRET_KEY": os.getenv("SECRET_KEY") or "fallback-secret-key-please-change",
+        "DEBUG": os.getenv("DEBUG", "False").lower() == "true",
+    }
+    # Validate (secure best practice)
+    required_keys = ["SECRET_KEY"]
+    for key in required_keys:
+        if not config[key] or config[key] == "fallback-secret-key-please-change":
+            raise ValueError(f"{key} not set properly in .env")
+    # Debug print
+    print("Config loaded:", {k: v for k, v in config.items() if k != "SECRET_KEY"})  # Mask secret
+    return config

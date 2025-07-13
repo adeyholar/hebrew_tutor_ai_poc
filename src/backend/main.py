@@ -1,29 +1,27 @@
-from fastapi import FastAPI, Depends
-from fastapi.security import OAuth2PasswordBearer
-import uvicorn
 import os
-import logging
-from config import load_config  # Modular import
+from fastapi import FastAPI, Body
+from .config import load_config  # Dotted relative (works with package)
 
-# Load config early (modular, ensures secrets available)
-load_config()
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+# Temporary debug prints (remove in production)
+print("Current working dir:", os.getcwd())
+print("Import path successful for config.")
 
-app = FastAPI(title="Hebrew Tutor AI PoC", description="Secure API for Tanach Learning with Lexicon and Audio", version="1.0.0")
+config = load_config()
+app = FastAPI(debug=config["DEBUG"])
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="auth/token")
-
-@app.get("/health", description="Health check endpoint")
-async def health_check():
+@app.get("/health")
+async def health():
     return {"status": "healthy"}
 
+@app.get("/lexicon/{word}")
+async def get_lexicon(word: str):
+    return {"root": "example_root", "definition": "def", "grammar": "gram"}
+
+@app.post("/feedback")
+async def feedback(recognizedText: dict = Body(...)):
+    text = recognizedText.get("recognizedText", "")
+    return {"improvements": f"Improve based on: {text}"}
+
 if __name__ == "__main__":
-    ssl_cert = os.getenv("SSL_CERT_PATH")
-    ssl_key = os.getenv("SSL_KEY_PATH")
-    if not ssl_cert or not ssl_key:
-        logger.error("SSL_CERT_PATH or SSL_KEY_PATH not set in .env. HTTPS disabled.")
-        uvicorn.run(app, host="0.0.0.0", port=8000)  # Fallback to HTTP if cert missing
-    else:
-        logger.info(f"Using cert: {ssl_cert}, key: {ssl_key}")
-        uvicorn.run(app, host="0.0.0.0", port=8000, ssl_certfile=ssl_cert, ssl_keyfile=ssl_key)
+    import uvicorn
+    uvicorn.run(app, host="0.0.0.0", port=8000, ssl_certfile="cert.pem", ssl_keyfile="key.pem")  # Adjust paths for local

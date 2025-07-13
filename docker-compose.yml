@@ -1,18 +1,32 @@
+version: '3.8'
+
 services:
   backend:
-    build: ./docker/backend
+    build:
+      context: .
+      dockerfile: docker/backend/Dockerfile  # Adjust path if named differently
     ports:
-      - "8000:8000"
+      - "8000:8000"  # HTTPS backend
+    volumes:
+      - ./.env:/app/.env:ro  # Secure ro mount for secrets
+      - ./cert.pem:/app/cert.pem:ro
+      - ./key.pem:/app/key.pem:ro
+      - ./src/backend:/app/src/backend  # Dev hot-reload; remove in prod
     environment:
-      - DATABASE_URL=sqlite:///data/hebrew_tutor.db
-    volumes:
-      - ./data:/app/data
-      - ./ .env:/app/.env
-      - ./cert.pem:/app/cert.pem
-      - ./key.pem:/app/key.pem
+      - PYTHONUNBUFFERED=1  # Real-time logs
+    restart: always  # Scalable auto-restart
+    user: appuser  # Secure non-root
+
   frontend:
-    build: ./docker/frontend
+    build:
+      context: .
+      dockerfile: docker/frontend/Dockerfile  # Adjust if needed
     ports:
-      - "3000:3000"
+      - "3000:3000"  # React dev
     volumes:
-      - ./src/frontend:/app
+      - ./src/frontend:/app/src  # Dev hot-reload
+    environment:
+      - CHOKIDAR_USEPOLLING=true  # File watch in Docker
+    restart: always
+    depends_on:
+      - backend  # Order: backend first
