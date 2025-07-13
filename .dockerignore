@@ -1,26 +1,3 @@
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-.Python
-env/
-venv/
-.env
-*.env
-.vscode/
-*.log
-data/user_progress/*.db
-data/content/
-*.mp3
-*.wav
-*.png
-node_modules
-*.pem
-*.Generic*.*
-Generic Private Key
-*.DS_Store
-*.bak
-*.swp
 # Exclude large/unnecessary dirs for slim context (scalable builds)
 node_modules
 .git
