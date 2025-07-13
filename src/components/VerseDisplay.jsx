@@ -1,7 +1,12 @@
 import React from 'react';
 import WordClickLexicon from './WordClickLexicon';
 
-const VerseDisplay = ({ verseText, audioPath }) => {
+interface VerseProps {
+  verseText: string;
+  audioPath: string;
+}
+
+const VerseDisplay: React.FC<VerseProps> = ({ verseText, audioPath }) => {
     return (
         <div className="rtl text-lg">
             <p>

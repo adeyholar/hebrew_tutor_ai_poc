@@ -1,4 +1,3 @@
-version: '3.8'
 services:
   backend:
     build: ./docker/backend
@@ -6,19 +5,11 @@ services:
       - "8000:8000"
     environment:
       - DATABASE_URL=sqlite:///data/hebrew_tutor.db
-      - SSL_CERT_PATH=/app/cert.pem
-      - SSL_KEY_PATH=/app/key.pem
     volumes:
-      - ./src:/app/src
       - ./data:/app/data
+      - ./ .env:/app/.env
       - ./cert.pem:/app/cert.pem
       - ./key.pem:/app/key.pem
-    depends_on:
-      - db
-  db:
-    image: sqlite:latest
-    volumes:
-      - ./data:/data
   frontend:
     build: ./docker/frontend
     ports:

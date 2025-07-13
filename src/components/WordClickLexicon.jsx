@@ -1,11 +1,17 @@
 import React from 'react';
 import axios from 'axios';
 
-const WordClickLexicon = ({ word }) => {
+interface LexiconData {
+  root: string;
+  definition: string;
+  grammar: string;
+}
+
+const WordClickLexicon: React.FC<{ word: string }> = ({ word }) => {
     const handleClick = async () => {
         try {
-            const response = await axios.get(`https://localhost:8000/lexicon/${word}`, {
-                httpsAgent: new https.Agent({ rejectUnauthorized: false }),  // Dev-only for self-signed cert
+            const response = await axios.get<LexiconData>(`https://localhost:8000/lexicon/${word}`, {
+                httpsAgent: new https.Agent({ rejectUnauthorized: false }),  // Dev-only
             });
             const data = response.data;
             alert(`Root: ${data.root}\nDefinition: ${data.definition}\nGrammar: ${data.grammar}`);
