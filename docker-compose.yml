@@ -1,32 +1,36 @@
-version: '3.8'
-
 services:
   backend:
     build:
       context: .
-      dockerfile: docker/backend/Dockerfile  # Adjust path if named differently
+      dockerfile: docker/backend/Dockerfile
     ports:
-      - "8000:8000"  # HTTPS backend
+      - "8000:8000"
     volumes:
-      - ./.env:/app/.env:ro  # Secure ro mount for secrets
+      - ./.env:/app/.env:ro
       - ./cert.pem:/app/cert.pem:ro
       - ./key.pem:/app/key.pem:ro
-      - ./src/backend:/app/src/backend  # Dev hot-reload; remove in prod
-    environment:
-      - PYTHONUNBUFFERED=1  # Real-time logs
-    restart: always  # Scalable auto-restart
-    user: appuser  # Secure non-root
+    restart: always
+    user: appuser
 
   frontend:
     build:
       context: .
-      dockerfile: docker/frontend/Dockerfile  # Adjust if needed
+      dockerfile: docker/frontend/Dockerfile
     ports:
-      - "3000:3000"  # React dev
-    volumes:
-      - ./src/frontend:/app/src  # Dev hot-reload
-    environment:
-      - CHOKIDAR_USEPOLLING=true  # File watch in Docker
+      - "3000:80"
     restart: always
     depends_on:
-      - backend  # Order: backend first
+      - backend
+    volumes:
+      - type: tmpfs
+        target: /var/cache/nginx/client_temp
+      - type: tmpfs
+        target: /var/cache/nginx/proxy_temp
+      - type: tmpfs
+        target: /var/cache/nginx/fastcgi_temp
+      - type: tmpfs
+        target: /var/cache/nginx/uwsgi_temp
+      - type: tmpfs
+        target: /var/cache/nginx/scgi_temp
+      - type: tmpfs
+        target: /run/nginx

@@ -9,6 +9,10 @@ print("Import path successful for config.")
 config = load_config()
 app = FastAPI(debug=config["DEBUG"])
 
+@app.get("/")
+async def root():
+  return {"message": "Backend ready"}
+
 @app.get("/health")
 async def health():
     return {"status": "healthy"}

@@ -13,3 +13,6 @@ coverage
 # Frontend/backend specific (modular)
 src/frontend/node_modules
 src/backend/__pycache__
+node_modules
+build
+new-vite-temp

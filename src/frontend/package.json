@@ -1,78 +1,39 @@
 {
-  "name": "frontend",
-  "version": "0.1.0",
+  "name": "frontend-vite",
   "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview",
+    "test": "vitest"
+  },
   "dependencies": {
     "@testing-library/dom": "^10.4.0",
     "@testing-library/jest-dom": "^6.6.3",
     "@testing-library/react": "^16.3.0",
     "@testing-library/user-event": "^13.5.0",
-    "@types/jest": "^27.5.2",
-    "@types/node": "^16.18.126",
-    "autoprefixer": "^10.4.21",
     "axios": "^1.10.0",
     "i18next": "^21.10.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "react-i18next": "^12.3.1",
     "recharts": "^3.1.0",
-    "tailwindcss": "^4.1.11",
-    "typescript": "^4.9.5",
     "web-vitals": "^2.1.4"
   },
   "devDependencies": {
+    "@types/jest": "^27.5.2",
+    "@types/node": "^16.18.126",
     "@types/react": "^19.1.8",
     "@types/react-dom": "^19.1.6",
-    "ajv": "^8.17.1",
-    "ajv-keywords": "^5.1.0",
-    "eslint-config-react-app": "^7.0.1",
+    "@vitejs/plugin-react": "^4.3.1",
+    "autoprefixer": "^10.4.21",
     "postcss": "^8.4.31",
-    "react-scripts": "^5.0.1"
-  },
-  "overrides": {
-    "@svgr/webpack": {
-      "@svgr/plugin-svgo": {
-        "svgo": "^2.8.0"
-      }
-    },
-    "resolve-url-loader": {
-      "postcss": "^8.4.31"
-    },
-    "fork-ts-checker-webpack-plugin": {
-      "ajv": "6.12.6",
-      "ajv-keywords": "3.5.2",
-      "schema-utils": "2.7.0"
-    },
-    "react-dev-utils": {
-      "fork-ts-checker-webpack-plugin": {
-        "ajv": "6.12.6",
-        "ajv-keywords": "3.5.2",
-        "schema-utils": "2.7.0"
-      }
-    }
-  },
-  "scripts": {
-    "start": "react-scripts start",
-    "build": "react-scripts build",
-    "test": "react-scripts test",
-    "eject": "react-scripts eject"
-  },
-  "eslintConfig": {
-    "extends": [
-      "react-app",
-      "react-app/jest"
-    ]
-  },
-  "browserslist": {
-    "production": [
-      ">0.2%",
-      "not dead",
-      "not op_mini all"
-    ],
-    "development": [
-      "last 1 chrome version",
-      "last 1 firefox version",
-      "last 1 safari version"
-    ]
+    "tailwindcss": "^4.1.11",
+    "typescript": "^4.9.5",
+    "vite": "^7.0.4",
+    "vite-tsconfig-paths": "^4.3.2",
+    "vitest": "^3.2.4"
   }
 }
